@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  outbound-monitor:
+    build: .
+    container_name: outbound-traffic-monitor
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - outbound_data:/app/data
+    restart: unless-stopped
+    networks:
+      - monitoring
+    # Mount the host's network namespace to monitor actual network traffic
+    network_mode: host
+    privileged: true
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  outbound_data:
