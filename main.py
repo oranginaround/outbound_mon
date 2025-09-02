@@ -241,6 +241,44 @@ def adjust():
         return jsonify({"success": False, "error": f"Server error: {str(e)}"}), 500
 
 
+@app.route("/config")
+@basic_auth.required
+def config():
+    return render_template('config.html')
+
+
+@app.route("/api/traffic-state", methods=['GET'])
+@basic_auth.required
+def get_traffic_state():
+    with lock:
+        return jsonify(state)
+
+
+@app.route("/api/traffic-state", methods=['POST'])
+@basic_auth.required
+def update_traffic_state():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "No JSON data provided"}), 400
+        
+        with lock:
+            # Validate the structure (basic check)
+            required_keys = ["month", "baseline", "last_bytes_sent", "offset_bytes", "daily_traffic", "daily_baseline", "current_day"]
+            for key in required_keys:
+                if key not in data:
+                    return jsonify({"success": False, "error": f"Missing required key: {key}"}), 400
+            
+            # Update state
+            state.update(data)
+            save_state()
+        
+        return jsonify({"success": True, "message": "Traffic state updated successfully"})
+    
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Server error: {str(e)}"}), 500
+
+
 if __name__ == "__main__":
     load_state()
     init_baseline()
