@@ -47,3 +47,6 @@ data/
 
 # Docker
 .dockerignore
+
+# App data
+traffic_state.json
