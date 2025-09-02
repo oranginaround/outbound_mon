@@ -21,6 +21,22 @@
             text-align: center;
         }
         .hidden { display: none; }
+        .nav-links {
+            margin-top: 20px;
+        }
+        .nav-links a {
+            color: #007bff;
+            text-decoration: none;
+            margin: 0 10px;
+            padding: 8px 15px;
+            border: 1px solid #007bff;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+        .nav-links a:hover {
+            background-color: #007bff;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -40,6 +56,10 @@
         </p>
         <p id="status-message" class="{{ status_class }}">{{ status_msg }}</p>
         <p><small>Last Update: <span id="last-update">{{ last_update }}</span></small></p>
+        
+        <div class="nav-links">
+            <a href="/daily">📊 View Daily Chart</a>
+        </div>
     </div>
     
     <script>

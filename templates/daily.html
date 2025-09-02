@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Daily Traffic Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { 
+            font-size: 28px; 
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            font-size: 18px;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+            margin: 20px 0;
+        }
+        .nav-links {
+            margin: 20px 0;
+        }
+        .nav-links a {
+            color: #007bff;
+            text-decoration: none;
+            margin: 0 15px;
+            padding: 10px 15px;
+            border: 1px solid #007bff;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+        .nav-links a:hover {
+            background-color: #007bff;
+            color: white;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 5px;
+            min-width: 150px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Daily Traffic Monitor</h1>
+        <div class="subtitle" id="month-title">Loading...</div>
+        
+        <div class="nav-links">
+            <a href="/">← Back to Overview</a>
+            <a href="#" onclick="refreshData()">🔄 Refresh</a>
+        </div>
+
+        <div class="stats" id="stats-container">
+            <div class="stat-card">
+                <div class="stat-value" id="today-traffic">-</div>
+                <div class="stat-label">Today's Traffic (GB)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="avg-traffic">-</div>
+                <div class="stat-label">Avg Daily (GB)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="max-traffic">-</div>
+                <div class="stat-label">Max Daily (GB)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="days-with-data">-</div>
+                <div class="stat-label">Days with Data</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="dailyChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        let chart = null;
+
+        function initChart(data) {
+            const ctx = document.getElementById('dailyChart').getContext('2d');
+            
+            if (chart) {
+                chart.destroy();
+            }
+
+            chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        label: 'Daily Traffic (GB)',
+                        data: data.data,
+                        backgroundColor: data.labels.map((label, index) => {
+                            if (index + 1 === data.today) {
+                                return 'rgba(40, 167, 69, 0.8)'; // Today - green
+                            } else if (data.data[index] > 0) {
+                                return 'rgba(54, 162, 235, 0.8)'; // Past days - blue
+                            } else {
+                                return 'rgba(220, 220, 220, 0.8)'; // Future/no data - gray
+                            }
+                        }),
+                        borderColor: data.labels.map((label, index) => {
+                            if (index + 1 === data.today) {
+                                return 'rgba(40, 167, 69, 1)';
+                            } else if (data.data[index] > 0) {
+                                return 'rgba(54, 162, 235, 1)';
+                            } else {
+                                return 'rgba(220, 220, 220, 1)';
+                            }
+                        }),
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Daily Traffic Usage',
+                            font: {
+                                size: 16
+                            }
+                        },
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Traffic (GB)'
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toFixed(2) + ' GB';
+                                }
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Day of Month'
+                            }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const dayNum = context.parsed.x + 1;
+                                    const value = context.parsed.y;
+                                    let label = `Day ${dayNum}: ${value.toFixed(3)} GB`;
+                                    
+                                    if (dayNum === data.today) {
+                                        label += ' (Today)';
+                                    } else if (value === 0 && dayNum > data.today) {
+                                        label += ' (Future)';
+                                    }
+                                    
+                                    return label;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateStats(data) {
+            const today = data.today;
+            const todayTraffic = data.data[today - 1] || 0;
+            
+            // Calculate statistics
+            const daysWithData = data.data.filter((val, idx) => val > 0 && idx < today).length;
+            const totalTraffic = data.data.slice(0, today).reduce((sum, val) => sum + val, 0);
+            const avgTraffic = daysWithData > 0 ? totalTraffic / daysWithData : 0;
+            const maxTraffic = Math.max(...data.data.slice(0, today));
+
+            // Update display
+            document.getElementById('today-traffic').textContent = todayTraffic.toFixed(3);
+            document.getElementById('avg-traffic').textContent = avgTraffic.toFixed(3);
+            document.getElementById('max-traffic').textContent = maxTraffic.toFixed(3);
+            document.getElementById('days-with-data').textContent = daysWithData;
+        }
+
+        function loadData() {
+            fetch('/daily-chart')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('month-title').textContent = data.month;
+                initChart(data);
+                updateStats(data);
+            })
+            .catch(error => {
+                console.error('Error loading chart data:', error);
+                document.getElementById('month-title').textContent = 'Error loading data';
+            });
+        }
+
+        function refreshData() {
+            loadData();
+        }
+
+        // Initial load
+        loadData();
+
+        // Auto-refresh every 30 seconds
+        setInterval(loadData, 30000);
+    </script>
+</body>
+</html>

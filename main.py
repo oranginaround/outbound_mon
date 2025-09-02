@@ -4,6 +4,7 @@ import time
 import json
 import os
 from datetime import datetime
+import calendar
 from flask import Flask, render_template, request, jsonify
 from flask_basicauth import BasicAuth
 
@@ -34,6 +35,9 @@ state = {
     "baseline": 0,
     "last_bytes_sent": 0,
     "offset_bytes": 0,
+    "daily_traffic": {},  # {"2025-09-01": bytes_used, "2025-09-02": bytes_used, ...}
+    "daily_baseline": 0,  # Daily baseline for current day
+    "current_day": None,  # Track current day
 }
 
 lock = threading.Lock()
@@ -42,12 +46,12 @@ lock = threading.Lock()
 def load_state():
     global state
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as f:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
             state.update(json.load(f))
 
 
 def save_state():
-    with open(STATE_FILE, "w") as f:
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f)
 
 
@@ -55,12 +59,29 @@ def init_baseline():
     global state
     now = datetime.utcnow()
     month_key = now.strftime("%Y-%m")
+    day_key = now.strftime("%Y-%m-%d")
     current_sent = psutil.net_io_counters().bytes_sent
 
+    # Handle monthly reset
     if state["month"] != month_key:
         state["month"] = month_key
         state["baseline"] = current_sent
         state["last_bytes_sent"] = current_sent
+        state["daily_traffic"] = {}  # Reset daily tracking for new month
+        state["daily_baseline"] = current_sent
+        state["current_day"] = day_key
+        save_state()
+    
+    # Handle daily reset
+    elif state["current_day"] != day_key:
+        # Save yesterday's traffic
+        if state["current_day"]:
+            yesterday_traffic = current_sent - state["daily_baseline"]
+            state["daily_traffic"][state["current_day"]] = yesterday_traffic
+        
+        # Start new day
+        state["daily_baseline"] = current_sent
+        state["current_day"] = day_key
         save_state()
 
 
@@ -141,6 +162,57 @@ def data():
         "status_msg": status_msg,
         "last_update": last_update,
     })
+
+
+@app.route("/daily")
+@basic_auth.required
+def daily():
+    return render_template('daily.html')
+
+
+@app.route("/daily-chart")
+@basic_auth.required
+def daily_chart():
+    with lock:
+        init_baseline()
+        now = datetime.utcnow()
+        year = now.year
+        month = now.month
+        
+        # Get number of days in current month
+        days_in_month = calendar.monthrange(year, month)[1]
+        
+        # Calculate today's traffic
+        current_sent = psutil.net_io_counters().bytes_sent
+        today_traffic = current_sent - state["daily_baseline"]
+        today_key = now.strftime("%Y-%m-%d")
+        
+        # Build chart data for the entire month
+        chart_data = []
+        labels = []
+        
+        for day in range(1, days_in_month + 1):
+            day_key = f"{year:04d}-{month:02d}-{day:02d}"
+            labels.append(f"{day}")
+            
+            if day_key == today_key:
+                # Today's traffic (current)
+                traffic_gb = round(today_traffic / (1024 ** 3), 3)
+            elif day_key in state["daily_traffic"]:
+                # Past days with recorded traffic
+                traffic_gb = round(state["daily_traffic"][day_key] / (1024 ** 3), 3)
+            else:
+                # Future days or days without data
+                traffic_gb = 0
+            
+            chart_data.append(traffic_gb)
+        
+        return jsonify({
+            "labels": labels,
+            "data": chart_data,
+            "month": now.strftime("%B %Y"),
+            "today": now.day
+        })
 
 
 @app.route("/adjust", methods=['POST'])
