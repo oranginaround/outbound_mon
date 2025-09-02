@@ -2,13 +2,18 @@ name: Deploy to Production
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     
     steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
     - name: Deploy to server
       uses: appleboy/ssh-action@v1.0.3
       with:
@@ -18,6 +23,6 @@ jobs:
         script: |
           cd /root/outbound_mon
           git reset --hard
-          git pull origin master
+          git pull origin main
           docker compose build
           docker compose up -d
