@@ -4,7 +4,7 @@ import time
 import json
 import os
 from datetime import datetime
-from flask import Flask, render_template_string
+from flask import Flask, render_template, request, jsonify
 from flask_basicauth import BasicAuth
 
 app = Flask(__name__)
@@ -26,12 +26,14 @@ basic_auth = BasicAuth(app)
 # TRAFFIC MONITOR CONFIG
 # ========================
 STATE_FILE = os.path.join(os.getenv("DATA_DIR", "/app/data"), "traffic_state.json")
-LIMIT_BYTES = 100 * 1024 * 1024 * 1024  # 100 GB
+TRAFFIC_CAP_GB = int(os.getenv("TRAFFIC_CAP_GB", "500"))  # Default 500 GB
+LIMIT_BYTES = TRAFFIC_CAP_GB * 1024 * 1024 * 1024  # Convert GB to bytes
 
 state = {
     "month": None,
     "baseline": 0,
     "last_bytes_sent": 0,
+    "offset_bytes": 0,
 }
 
 lock = threading.Lock()
@@ -72,43 +74,15 @@ def monitor_traffic(interval=10):
             save_state()
 
 
-TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Outbound Traffic Monitor</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
-        .card { display: inline-block; padding: 20px; border: 1px solid #ccc; border-radius: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); }
-        h1 { font-size: 24px; }
-        p { font-size: 20px; }
-        .warn { color: orange; }
-        .over { color: red; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>Outbound Traffic Monitor</h1>
-        <p><strong>Month:</strong> {{ month }}</p>
-        <p><strong>Used:</strong> {{ used_gb }} GB / 100 GB</p>
-        <p class="{{ status_class }}">{{ status_msg }}</p>
-        <p><small>Last Update: {{ last_update }}</small></p>
-    </div>
-    <script>
-        setTimeout(() => window.location.reload(), 5000);
-    </script>
-</body>
-</html>
-"""
-
-
 @app.route("/")
 @basic_auth.required
 def index():
     with lock:
         init_baseline()
-        used_bytes = state["last_bytes_sent"] - state["baseline"]
+        raw_used_bytes = state["last_bytes_sent"] - state["baseline"]
+        used_bytes = raw_used_bytes + state["offset_bytes"]  # Add manual offset
         used_gb = round(used_bytes / (1024 ** 3), 2)
+        offset_gb = round(state["offset_bytes"] / (1024 ** 3), 2)
         month = state["month"]
 
         if used_bytes > LIMIT_BYTES:
@@ -123,14 +97,76 @@ def index():
 
         last_update = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
-    return render_template_string(
-        TEMPLATE,
+    return render_template(
+        'index.html',
         used_gb=used_gb,
+        offset_gb=f"{offset_gb:.2f}",
+        cap_gb=TRAFFIC_CAP_GB,
         month=month,
         status_class=status_class,
         status_msg=status_msg,
         last_update=last_update,
     )
+
+
+@app.route("/data")
+@basic_auth.required
+def data():
+    with lock:
+        init_baseline()
+        raw_used_bytes = state["last_bytes_sent"] - state["baseline"]
+        used_bytes = raw_used_bytes + state["offset_bytes"]  # Add manual offset
+        used_gb = round(used_bytes / (1024 ** 3), 2)
+        offset_gb = round(state["offset_bytes"] / (1024 ** 3), 2)
+        month = state["month"]
+
+        if used_bytes > LIMIT_BYTES:
+            status_class = "over"
+            status_msg = "⚠️ Over limit! Extra charges apply."
+        elif used_bytes > LIMIT_BYTES * 0.8:
+            status_class = "warn"
+            status_msg = f"Warning: {used_gb} GB used (~80% of limit)."
+        else:
+            status_class = ""
+            status_msg = "Within safe limit."
+
+        last_update = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+    return jsonify({
+        "used_gb": used_gb,
+        "offset_gb": f"{offset_gb:.2f}",
+        "cap_gb": TRAFFIC_CAP_GB,
+        "month": month,
+        "status_class": status_class,
+        "status_msg": status_msg,
+        "last_update": last_update,
+    })
+
+
+@app.route("/adjust", methods=['POST'])
+@basic_auth.required
+def adjust():
+    try:
+        data = request.get_json()
+        if not data or 'offset' not in data:
+            return jsonify({"success": False, "error": "Missing 'offset' in JSON body"}), 400
+        
+        new_offset_gb = float(data['offset'])
+        new_offset_bytes = int(new_offset_gb * 1024 * 1024 * 1024)  # Convert GB to bytes
+        
+        with lock:
+            state["offset_bytes"] = new_offset_bytes  # Rewrite, don't add
+            save_state()
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Successfully set manual offset to {new_offset_gb} GB"
+        })
+    
+    except (ValueError, TypeError) as e:
+        return jsonify({"success": False, "error": f"Invalid offset value: {str(e)}"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Server error: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
