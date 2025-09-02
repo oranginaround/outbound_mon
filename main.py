@@ -161,6 +161,8 @@ def data():
         "status_class": status_class,
         "status_msg": status_msg,
         "last_update": last_update,
+        "raw_bytes_sent": state["last_bytes_sent"],  # Add raw bytes data
+        "timestamp": int(time.time())  # Add timestamp for pulse calculation
     })
 
 
