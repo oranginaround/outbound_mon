@@ -2,11 +2,53 @@
 <html>
 <head>
     <title>Outbound Traffic Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
-        .card { display: inline-block; padding: 20px; border: 1px solid #ccc; border-radius: 10px; box-shadow: 2px 2px 10px rgba(0,0,0,0.1); }
-        h1 { font-size: 24px; }
-        p { font-size: 20px; }
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            margin-top: 50px;
+            background: #f8f9fa;
+            color: #333;
+        }
+        .card { 
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 30px; 
+            background: #fff;
+            border-radius: 10px; 
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+            border: 1px solid #ddd;
+        }
+        h1 { 
+            font-size: 28px; 
+            margin-bottom: 30px;
+            color: #333;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #e9ecef;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #333;
+        }
         .warn { color: orange; }
         .over { color: red; }
         .offset-container { display: inline-flex; align-items: center; gap: 8px; }
@@ -19,10 +61,13 @@
             border-radius: 4px;
             font-size: 16px;
             text-align: center;
+            background: #fff;
+            color: #333;
         }
         .hidden { display: none; }
         .nav-links {
             margin-top: 20px;
+            text-align: center;
         }
         .nav-links a {
             color: #007bff;
@@ -37,25 +82,143 @@
             background-color: #007bff;
             color: white;
         }
+        
+        /* Activity monitor */
+        .activity-monitor {
+            margin: 30px 0;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .monitor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .monitor-title {
+            font-size: 16px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #333;
+        }
+        
+        .activity-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #6c757d;
+            animation: pulse-blink 1s infinite;
+        }
+        
+        .activity-indicator.active {
+            background: #007bff;
+            animation: pulse-blink 0.5s infinite;
+        }
+        
+        .activity-stats {
+            display: flex;
+            gap: 20px;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .debug-panel {
+            margin-top: 10px;
+            padding: 10px;
+            background: #e9ecef;
+            border-radius: 5px;
+            font-size: 11px;
+            color: #666;
+            border: 1px solid #dee2e6;
+            display: none;
+        }
+        
+        .debug-toggle {
+            cursor: pointer;
+            color: #007bff;
+            text-decoration: underline;
+            font-size: 10px;
+            margin-left: 10px;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 200px;
+            margin-top: 10px;
+        }
+        
+        @keyframes pulse-blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
     </style>
 </head>
 <body>
     <div class="card">
         <h1>Outbound Traffic Monitor</h1>
-        <p><strong>Month:</strong> <span id="month-value">{{ month }}</span></p>
-        <p><strong>Used:</strong> <span id="used-value">{{ used_gb }} GB / {{ cap_gb }} GB</span></p>
-        <p>
-            <strong>Manual Offset:</strong> 
-            <div class="offset-container">
-                <span id="offset-display">{{ offset_gb }} GB</span>
-                <span class="pen-icon" onclick="editOffset()">✏️</span>
-                <input type="number" class="offset-input hidden" id="offset-input" 
-                       value="{{ offset_gb }}" step="0.01" min="0" 
-                       onkeypress="handleEnter(event)" onblur="cancelEdit()">
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Current Month</div>
+                <div class="stat-value" id="month-value">{{ month }}</div>
             </div>
-        </p>
-        <p id="status-message" class="{{ status_class }}">{{ status_msg }}</p>
-        <p><small>Last Update: <span id="last-update">{{ last_update }}</span></small></p>
+            <div class="stat-card">
+                <div class="stat-label">Data Usage</div>
+                <div class="stat-value" id="used-value">{{ used_gb }} / {{ cap_gb }} GB</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Manual Offset</div>
+                <div class="stat-value">
+                    <div class="offset-container">
+                        <span id="offset-display">{{ offset_gb }} GB</span>
+                        <span class="pen-icon" onclick="editOffset()">✏️</span>
+                        <input type="number" class="offset-input hidden" id="offset-input" 
+                               value="{{ offset_gb }}" step="0.01" min="0" 
+                               onkeypress="handleEnter(event)" onblur="cancelEdit()">
+                    </div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Status</div>
+                <div class="stat-value {{ status_class }}" id="status-message">{{ status_msg }}</div>
+            </div>
+        </div>
+        
+        <!-- Steam-like activity monitor -->
+        <div class="activity-monitor">
+            <div class="monitor-header">
+                <div class="monitor-title">
+                    <span class="activity-indicator" id="activity-indicator"></span>
+                    Network Activity Monitor
+                    <span class="debug-toggle" onclick="toggleDebug()">debug</span>
+                </div>
+                <div class="activity-stats">
+                    <span>Current: <span id="current-rate">0 B/s</span></span>
+                    <span>Peak: <span id="peak-rate">0 B/s</span></span>
+                    <span>Avg: <span id="avg-rate">0 B/s</span></span>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="activityChart"></canvas>
+            </div>
+            <div class="debug-panel" id="debug-panel">
+                <div><strong>Debug Info:</strong></div>
+                <div>Raw Rate: <span id="debug-raw">0 B/s</span></div>
+                <div>Smoothed Rate: <span id="debug-smoothed">0 B/s</span></div>
+                <div>Smoothing Window: <span id="debug-window">5</span> points</div>
+                <div>Raw History Length: <span id="debug-history">0</span></div>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px; opacity: 0.7; font-size: 12px;">
+            Last Update: <span id="last-update">{{ last_update }}</span>
+        </div>
         
         <div class="nav-links">
             <a href="/daily">📊 View Daily Chart</a>
@@ -65,6 +228,213 @@
     
     <script>
         let isEditing = false;
+        let previousBytes = null;
+        let previousTimestamp = null;
+        let peakRate = 0;
+        let rateHistory = [];
+        let maxHistorySize = 20;
+        let activityChart;
+        let chartData = [];
+        let maxDataPoints = 300; // 5 minutes of data at 1-second intervals
+        let rawRateHistory = []; // Store raw rates for smoothing
+        let smoothingWindow = 5; // Number of points to smooth over
+        let lastValidRate = 0; // Store last non-zero rate for interpolation
+        
+        // Initialize Chart.js
+        function initChart() {
+            const ctx = document.getElementById('activityChart').getContext('2d');
+            
+            // Create gradient - single blue color
+            const gradient = ctx.createLinearGradient(0, 0, 0, 200);
+            gradient.addColorStop(0, 'rgba(0, 123, 255, 0.8)');
+            gradient.addColorStop(0.5, 'rgba(0, 123, 255, 0.4)');
+            gradient.addColorStop(1, 'rgba(0, 123, 255, 0.1)');
+            
+            activityChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array(maxDataPoints).fill(''),
+                    datasets: [{
+                        label: 'Network Activity',
+                        data: Array(maxDataPoints).fill(0),
+                        borderColor: '#007bff',
+                        backgroundColor: gradient,
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.6, // Increased tension for smoother curves
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        pointHoverBackgroundColor: '#007bff',
+                        pointHoverBorderColor: '#fff',
+                        pointHoverBorderWidth: 2,
+                        cubicInterpolationMode: 'monotone' // Better interpolation
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'nearest',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return 'Rate: ' + formatBytes(context.parsed.y);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: false,
+                            grid: {
+                                display: false
+                            }
+                        },
+                        y: {
+                            display: true,
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.1)',
+                                borderDash: [2, 2]
+                            },
+                            ticks: {
+                                color: '#666',
+                                font: {
+                                    size: 10
+                                },
+                                callback: function(value) {
+                                    return formatBytes(value);
+                                }
+                            }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    animation: {
+                        duration: 0 // Disable animations for real-time feel
+                    }
+                }
+            });
+        }
+        
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B/s';
+            const k = 1024;
+            const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        // Smoothing function using moving average
+        function smoothRate(newRate) {
+            // Add raw rate to history
+            rawRateHistory.push(newRate);
+            if (rawRateHistory.length > smoothingWindow) {
+                rawRateHistory.shift();
+            }
+            
+            // Handle zero values by interpolation
+            if (newRate === 0 && lastValidRate > 0 && rawRateHistory.length > 1) {
+                // If we get a zero but had valid data before, use interpolation
+                const recentNonZero = rawRateHistory.slice(-3).filter(r => r > 0);
+                if (recentNonZero.length > 0) {
+                    newRate = recentNonZero[recentNonZero.length - 1] * 0.3; // Decay the last valid rate
+                }
+            }
+            
+            if (newRate > 0) {
+                lastValidRate = newRate;
+            }
+            
+            // Calculate moving average, giving more weight to recent values
+            let weightedSum = 0;
+            let totalWeight = 0;
+            
+            for (let i = 0; i < rawRateHistory.length; i++) {
+                const weight = i + 1; // More recent values get higher weight
+                const rate = rawRateHistory[i] || 0;
+                weightedSum += rate * weight;
+                totalWeight += weight;
+            }
+            
+            return totalWeight > 0 ? weightedSum / totalWeight : 0;
+        }
+        
+        // Exponential smoothing for even smoother results
+        function exponentialSmooth(newValue, alpha = 0.3) {
+            if (chartData.length === 0) return newValue;
+            const lastSmoothed = chartData[chartData.length - 1] || 0;
+            return alpha * newValue + (1 - alpha) * lastSmoothed;
+        }
+        
+        function updateActivityChart(rate) {
+            // Apply smoothing to the rate
+            const smoothedRate = smoothRate(rate);
+            const finalRate = exponentialSmooth(smoothedRate);
+            
+            // Update debug info
+            document.getElementById('debug-raw').textContent = formatBytes(rate);
+            document.getElementById('debug-smoothed').textContent = formatBytes(finalRate);
+            document.getElementById('debug-window').textContent = smoothingWindow;
+            document.getElementById('debug-history').textContent = rawRateHistory.length;
+            
+            // Add smoothed data point
+            chartData.push(finalRate);
+            if (chartData.length > maxDataPoints) {
+                chartData.shift();
+            }
+            
+            // Pad with zeros if not enough data
+            const displayData = [...chartData];
+            while (displayData.length < maxDataPoints) {
+                displayData.unshift(0);
+            }
+            
+            // Update peak rate (use original rate for peak, not smoothed)
+            if (rate > peakRate) {
+                peakRate = rate;
+            }
+            
+            // Update rate history for average (use smoothed rate)
+            rateHistory.push(finalRate);
+            if (rateHistory.length > maxHistorySize) {
+                rateHistory.shift();
+            }
+            
+            const avgRate = rateHistory.reduce((a, b) => a + b, 0) / rateHistory.length;
+            
+            // Update chart data
+            activityChart.data.datasets[0].data = displayData;
+            activityChart.update('none'); // No animation for real-time feel
+            
+            // Update activity indicator (use original rate for responsiveness)
+            const indicator = document.getElementById('activity-indicator');
+            if (rate > avgRate) {
+                indicator.classList.add('active');
+            } else {
+                indicator.classList.remove('active');
+            }
+            
+            // Update stats (show smoothed current rate, but original peak)
+            document.getElementById('current-rate').textContent = formatBytes(finalRate);
+            document.getElementById('peak-rate').textContent = formatBytes(peakRate);
+            document.getElementById('avg-rate').textContent = formatBytes(avgRate);
+        }
+        
+        function toggleDebug() {
+            const panel = document.getElementById('debug-panel');
+            if (panel.style.display === 'none' || panel.style.display === '') {
+                panel.style.display = 'block';
+            } else {
+                panel.style.display = 'none';
+            }
+        }
         
         function editOffset() {
             if (isEditing) return;
@@ -110,10 +480,8 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Update display immediately
                     document.getElementById('offset-display').textContent = newOffset.toFixed(2) + ' GB';
                     cancelEdit();
-                    // Refresh data after successful update
                     updateData();
                 } else {
                     alert('Error: ' + data.error);
@@ -127,14 +495,28 @@
         }
         
         function updateData() {
-            if (isEditing) return; // Don't update while editing
+            if (isEditing) return;
             
             fetch('/data')
             .then(response => response.json())
             .then(data => {
+                // Calculate network activity rate
+                if (previousBytes !== null && previousTimestamp !== null) {
+                    const bytesDiff = data.raw_bytes_sent - previousBytes;
+                    const timeDiff = data.timestamp - previousTimestamp;
+                    const rate = timeDiff > 0 ? bytesDiff / timeDiff : 0;
+                    
+                    // Update activity chart
+                    updateActivityChart(Math.max(0, rate));
+                }
+                
+                // Store current values for next calculation
+                previousBytes = data.raw_bytes_sent;
+                previousTimestamp = data.timestamp;
+                
                 // Update all dynamic fields
                 document.getElementById('month-value').textContent = data.month;
-                document.getElementById('used-value').textContent = data.used_gb + ' GB / ' + data.cap_gb + ' GB';
+                document.getElementById('used-value').textContent = data.used_gb + ' / ' + data.cap_gb + ' GB';
                 document.getElementById('offset-display').textContent = data.offset_gb + ' GB';
                 document.getElementById('offset-input').value = data.offset_gb;
                 
@@ -148,14 +530,16 @@
             })
             .catch(error => {
                 console.error('Error fetching data:', error);
+                updateActivityChart(0);
             });
         }
         
-        // Update data every 5 seconds instead of reloading page
-        setInterval(updateData, 5000);
-        
-        // Initial data load
-        updateData();
+        // Initialize chart on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initChart();
+            updateData(); // Initial data load
+            setInterval(updateData, 1000); // Update every 1 second
+        });
     </script>
 </body>
 </html>
