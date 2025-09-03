@@ -3,12 +3,65 @@ import threading
 import time
 import json
 import os
-from datetime import datetime
+import secrets
+from datetime import datetime, timezone
 import calendar
-from flask import Flask, render_template, request, jsonify
-from flask_basicauth import BasicAuth
+from typing import Dict
+from pydantic import BaseModel
+from fastapi import FastAPI, Request, HTTPException, Depends, status
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+import uvicorn
+from dotenv import load_dotenv
 
-app = Flask(__name__)
+# Load environment variables from .env file
+load_dotenv()
+
+class AdjustRequest(BaseModel):
+    offset: float
+
+class AdjustResponse(BaseModel):
+    success: bool
+    message: str
+
+class TrafficData(BaseModel):
+    used_gb: float
+    offset_gb: str
+    cap_gb: int
+    month: str
+    status_class: str
+    status_msg: str
+    last_update: str
+    raw_bytes_sent: int
+    timestamp: int
+
+class DailyChartData(BaseModel):
+    labels: list[str]
+    data: list[float]
+    month: str
+    today: int
+
+class TrafficStateUpdate(BaseModel):
+    month: str
+    baseline: int
+    last_bytes_sent: int
+    offset_bytes: int
+    daily_traffic: Dict[str, int]
+    daily_baseline: int
+    current_day: str
+
+class SuccessResponse(BaseModel):
+    success: bool
+    message: str
+
+app = FastAPI(title="Outbound Traffic Monitor")
+
+# Set up templates
+templates = Jinja2Templates(directory="templates")
+
+# Set up HTTP Basic Authentication
+security = HTTPBasic()
 
 # ========================
 # BASIC AUTH CONFIG
@@ -17,11 +70,24 @@ MONITOR_USER = os.getenv("MONITOR_USER")
 MONITOR_PASS = os.getenv("MONITOR_PASS")
 if not MONITOR_USER or not MONITOR_PASS:
     raise ValueError("Environment variables MONITOR_USER and MONITOR_PASS must be set")
-app.config['BASIC_AUTH_USERNAME'] = MONITOR_USER
-app.config['BASIC_AUTH_PASSWORD'] = MONITOR_PASS
-app.config['BASIC_AUTH_FORCE'] = True   # protect all routes
 
-basic_auth = BasicAuth(app)
+def authenticate(credentials: HTTPBasicCredentials = Depends(security)):
+    """Basic authentication dependency"""
+    if not MONITOR_USER or not MONITOR_PASS:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication not configured"
+        )
+    
+    correct_username = secrets.compare_digest(credentials.username, MONITOR_USER)
+    correct_password = secrets.compare_digest(credentials.password, MONITOR_PASS)
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 # ========================
 # TRAFFIC MONITOR CONFIG
@@ -57,7 +123,7 @@ def save_state():
 
 def init_baseline():
     global state
-    now = datetime.utcnow()
+    now = datetime.now()
     month_key = now.strftime("%Y-%m")
     day_key = now.strftime("%Y-%m-%d")
     current_sent = psutil.net_io_counters().bytes_sent
@@ -95,9 +161,8 @@ def monitor_traffic(interval=10):
             save_state()
 
 
-@app.route("/")
-@basic_auth.required
-def index():
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request, _username: str = Depends(authenticate)):
     with lock:
         init_baseline()
         raw_used_bytes = state["last_bytes_sent"] - state["baseline"]
@@ -118,21 +183,23 @@ def index():
 
         last_update = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
-    return render_template(
+    return templates.TemplateResponse(
         'index.html',
-        used_gb=used_gb,
-        offset_gb=f"{offset_gb:.2f}",
-        cap_gb=TRAFFIC_CAP_GB,
-        month=month,
-        status_class=status_class,
-        status_msg=status_msg,
-        last_update=last_update,
+        {
+            "request": request,
+            "used_gb": used_gb,
+            "offset_gb": f"{offset_gb:.2f}",
+            "cap_gb": TRAFFIC_CAP_GB,
+            "month": month,
+            "status_class": status_class,
+            "status_msg": status_msg,
+            "last_update": last_update,
+        }
     )
 
 
-@app.route("/data")
-@basic_auth.required
-def data():
+@app.get("/data", response_model=TrafficData, summary="Get current traffic data", description="Returns current traffic usage statistics including used data, status, and timestamps.")
+def data(_username: str = Depends(authenticate)):
     with lock:
         init_baseline()
         raw_used_bytes = state["last_bytes_sent"] - state["baseline"]
@@ -153,7 +220,7 @@ def data():
 
         last_update = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
-    return jsonify({
+    return {
         "used_gb": used_gb,
         "offset_gb": f"{offset_gb:.2f}",
         "cap_gb": TRAFFIC_CAP_GB,
@@ -163,21 +230,19 @@ def data():
         "last_update": last_update,
         "raw_bytes_sent": state["last_bytes_sent"],  # Add raw bytes data
         "timestamp": int(time.time())  # Add timestamp for pulse calculation
-    })
+    }
 
 
-@app.route("/daily")
-@basic_auth.required
-def daily():
-    return render_template('daily.html')
+@app.get("/daily", response_class=HTMLResponse)
+def daily(request: Request, _username: str = Depends(authenticate)):
+    return templates.TemplateResponse('daily.html', {"request": request})
 
 
-@app.route("/daily-chart")
-@basic_auth.required
-def daily_chart():
+@app.get("/daily-chart", response_model=DailyChartData, summary="Get daily chart data", description="Returns daily traffic data for the current month in chart format.")
+def daily_chart(_username: str = Depends(authenticate)):
     with lock:
         init_baseline()
-        now = datetime.utcnow()
+        now = datetime.now()
         year = now.year
         month = now.month
         
@@ -209,76 +274,58 @@ def daily_chart():
             
             chart_data.append(traffic_gb)
         
-        return jsonify({
+        return {
             "labels": labels,
             "data": chart_data,
             "month": now.strftime("%B %Y"),
             "today": now.day
-        })
+        }
 
 
-@app.route("/adjust", methods=['POST'])
-@basic_auth.required
-def adjust():
+@app.post("/adjust", response_model=AdjustResponse, summary="Adjust traffic offset", description="Manually adjust the traffic offset value in GB.")
+def adjust(request_data: AdjustRequest, _username: str = Depends(authenticate)):
     try:
-        data = request.get_json()
-        if not data or 'offset' not in data:
-            return jsonify({"success": False, "error": "Missing 'offset' in JSON body"}), 400
-        
-        new_offset_gb = float(data['offset'])
+        new_offset_gb = request_data.offset
         new_offset_bytes = int(new_offset_gb * 1024 * 1024 * 1024)  # Convert GB to bytes
         
         with lock:
             state["offset_bytes"] = new_offset_bytes  # Rewrite, don't add
             save_state()
         
-        return jsonify({
-            "success": True, 
-            "message": f"Successfully set manual offset to {new_offset_gb} GB"
-        })
+        return AdjustResponse(
+            success=True, 
+            message=f"Successfully set manual offset to {new_offset_gb} GB"
+        )
     
     except (ValueError, TypeError) as e:
-        return jsonify({"success": False, "error": f"Invalid offset value: {str(e)}"}), 400
+        raise HTTPException(status_code=400, detail=f"Invalid offset value: {str(e)}")
     except Exception as e:
-        return jsonify({"success": False, "error": f"Server error: {str(e)}"}), 500
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
-@app.route("/config")
-@basic_auth.required
-def config():
-    return render_template('config.html')
+@app.get("/config", response_class=HTMLResponse)
+def config(request: Request, _username: str = Depends(authenticate)):
+    return templates.TemplateResponse('config.html', {"request": request})
 
 
-@app.route("/api/traffic-state", methods=['GET'])
-@basic_auth.required
-def get_traffic_state():
+@app.get("/api/traffic-state")
+def get_traffic_state(_username: str = Depends(authenticate)):
     with lock:
-        return jsonify(state)
+        return state
 
 
-@app.route("/api/traffic-state", methods=['POST'])
-@basic_auth.required
-def update_traffic_state():
+@app.post("/api/traffic-state", response_model=SuccessResponse, summary="Update traffic state", description="Update the complete traffic state with new values.")
+def update_traffic_state(request_data: TrafficStateUpdate, _username: str = Depends(authenticate)):
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"success": False, "error": "No JSON data provided"}), 400
-        
         with lock:
-            # Validate the structure (basic check)
-            required_keys = ["month", "baseline", "last_bytes_sent", "offset_bytes", "daily_traffic", "daily_baseline", "current_day"]
-            for key in required_keys:
-                if key not in data:
-                    return jsonify({"success": False, "error": f"Missing required key: {key}"}), 400
-            
             # Update state
-            state.update(data)
+            state.update(request_data.dict())
             save_state()
         
-        return jsonify({"success": True, "message": "Traffic state updated successfully"})
+        return SuccessResponse(success=True, message="Traffic state updated successfully")
     
     except Exception as e:
-        return jsonify({"success": False, "error": f"Server error: {str(e)}"}), 500
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
 if __name__ == "__main__":
@@ -286,4 +333,4 @@ if __name__ == "__main__":
     init_baseline()
     thread = threading.Thread(target=monitor_traffic, daemon=True)
     thread.start()
-    app.run(host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="0.0.0.0", port=8080)

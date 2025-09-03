@@ -1,3 +1,6 @@
 psutil
-flask
-flask-basicauth
+fastapi
+uvicorn
+python-multipart
+jinja2
+python-dotenv
