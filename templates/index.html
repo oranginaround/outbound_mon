@@ -54,17 +54,146 @@
         .offset-container { display: inline-flex; align-items: center; gap: 8px; }
         .pen-icon { cursor: pointer; font-size: 16px; color: #666; user-select: none; }
         .pen-icon:hover { color: #333; }
-        .offset-input { 
-            width: 80px; 
-            padding: 4px 8px; 
-            border: 1px solid #ccc; 
-            border-radius: 4px;
-            font-size: 16px;
+        .hidden { display: none; }
+        
+        /* Modal/Popup styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            animation: fadeIn 0.3s;
+        }
+        
+        .modal-content {
+            background-color: #fff;
+            margin: 15% auto;
+            padding: 30px;
+            border: none;
+            border-radius: 12px;
+            width: 400px;
+            max-width: 90%;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            animation: slideIn 0.3s;
+            position: relative;
+        }
+        
+        .modal-header {
             text-align: center;
-            background: #fff;
+            margin-bottom: 25px;
+        }
+        
+        .modal-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+            margin: 0;
+        }
+        
+        .close {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.3s;
+        }
+        
+        .close:hover,
+        .close:focus {
             color: #333;
         }
-        .hidden { display: none; }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            text-align: center;
+            box-sizing: border-box;
+            transition: border-color 0.3s;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        
+        .form-description {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 25px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+            min-width: 80px;
+        }
+        
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #545b62;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes slideIn {
+            from { 
+                opacity: 0;
+                transform: translateY(-50px);
+            }
+            to { 
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
         .nav-links {
             margin-top: 20px;
             text-align: center;
@@ -170,17 +299,10 @@
             </div>
             <div class="stat-card">
                 <div class="stat-label">Data Usage</div>
-                <div class="stat-value" id="used-value">{{ used_gb }} / {{ cap_gb }} GB</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Manual Offset</div>
                 <div class="stat-value">
                     <div class="offset-container">
-                        <span id="offset-display">{{ offset_gb }} GB</span>
-                        <span class="pen-icon" onclick="editOffset()">✏️</span>
-                        <input type="number" class="offset-input hidden" id="offset-input" 
-                               value="{{ offset_gb }}" step="0.01" min="0" 
-                               onkeypress="handleEnter(event)" onblur="cancelEdit()">
+                        <span id="used-value">{{ used_gb }} / {{ cap_gb }} GB</span>
+                        <span class="pen-icon" onclick="openOffsetModal()" title="Adjust manual offset ({{ offset_gb }} GB)">✏️</span>
                     </div>
                 </div>
             </div>
@@ -226,8 +348,34 @@
         </div>
     </div>
     
+    <!-- Offset Adjustment Modal -->
+    <div id="offsetModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeOffsetModal()">&times;</span>
+            <div class="modal-header">
+                <h2 class="modal-title">Adjust Manual Offset</h2>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="modalOffsetInput">Offset Value (GB)</label>
+                <input type="number" 
+                       class="form-input" 
+                       id="modalOffsetInput" 
+                       value="{{ offset_gb }}" 
+                       step="0.01" 
+                       min="0"
+                       placeholder="Enter offset in GB">
+                <div class="form-description">
+                    This value will be added to your current usage. Use this to account for data usage not captured by the monitor.
+                </div>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" onclick="closeOffsetModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="submitOffsetModal()">Apply</button>
+            </div>
+        </div>
+    </div>
+    
     <script>
-        let isEditing = false;
         let previousBytes = null;
         let previousTimestamp = null;
         let peakRate = 0;
@@ -436,39 +584,35 @@
             }
         }
         
-        function editOffset() {
-            if (isEditing) return;
-            isEditing = true;
+        function openOffsetModal() {
+            const modal = document.getElementById('offsetModal');
+            const input = document.getElementById('modalOffsetInput');
+            // Get current offset from the modal input or backend data
+            const currentOffset = document.getElementById('modalOffsetInput').value;
             
-            const display = document.getElementById('offset-display');
-            const input = document.getElementById('offset-input');
+            input.value = currentOffset;
+            modal.style.display = 'block';
             
-            display.classList.add('hidden');
-            input.classList.remove('hidden');
-            input.focus();
-            input.select();
+            // Focus and select the input after a short delay to ensure modal is visible
+            setTimeout(() => {
+                input.focus();
+                input.select();
+            }, 100);
         }
         
-        function cancelEdit() {
-            if (!isEditing) return;
-            isEditing = false;
-            
-            const display = document.getElementById('offset-display');
-            const input = document.getElementById('offset-input');
-            
-            display.classList.remove('hidden');
-            input.classList.add('hidden');
+        function closeOffsetModal() {
+            const modal = document.getElementById('offsetModal');
+            modal.style.display = 'none';
         }
         
-        function handleEnter(event) {
-            if (event.key === 'Enter') {
-                submitOffset();
-            }
-        }
-        
-        function submitOffset() {
-            const input = document.getElementById('offset-input');
+        function submitOffsetModal() {
+            const input = document.getElementById('modalOffsetInput');
             const newOffset = parseFloat(input.value) || 0;
+            
+            if (newOffset < 0) {
+                alert('Offset cannot be negative');
+                return;
+            }
             
             fetch('/adjust', {
                 method: 'POST',
@@ -480,23 +624,41 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    document.getElementById('offset-display').textContent = newOffset.toFixed(2) + ' GB';
-                    cancelEdit();
+                    // Update the tooltip to show the new offset value
+                    const penIcon = document.querySelector('.pen-icon');
+                    penIcon.title = `Adjust manual offset (${newOffset.toFixed(2)} GB)`;
+                    closeOffsetModal();
                     updateData();
                 } else {
                     alert('Error: ' + data.error);
-                    cancelEdit();
                 }
             })
             .catch(error => {
                 alert('Error updating offset: ' + error);
-                cancelEdit();
             });
         }
         
+        // Handle keyboard events for modal
+        document.addEventListener('keydown', function(event) {
+            const modal = document.getElementById('offsetModal');
+            if (modal.style.display === 'block') {
+                if (event.key === 'Enter') {
+                    submitOffsetModal();
+                } else if (event.key === 'Escape') {
+                    closeOffsetModal();
+                }
+            }
+        });
+        
+        // Close modal when clicking outside of it
+        window.onclick = function(event) {
+            const modal = document.getElementById('offsetModal');
+            if (event.target === modal) {
+                closeOffsetModal();
+            }
+        }
+        
         function updateData() {
-            if (isEditing) return;
-            
             fetch('/data')
             .then(response => response.json())
             .then(data => {
@@ -516,9 +678,28 @@
                 
                 // Update all dynamic fields
                 document.getElementById('month-value').textContent = data.month;
-                document.getElementById('used-value').textContent = data.used_gb + ' / ' + data.cap_gb + ' GB';
-                document.getElementById('offset-display').textContent = data.offset_gb + ' GB';
-                document.getElementById('offset-input').value = data.offset_gb;
+                
+                // Update the usage display within the container
+                const usedValueSpan = document.querySelector('#used-value span');
+                if (usedValueSpan) {
+                    usedValueSpan.textContent = data.used_gb + ' / ' + data.cap_gb + ' GB';
+                } else {
+                    // Fallback if span structure changes
+                    const usedContainer = document.getElementById('used-value');
+                    const penIcon = usedContainer.querySelector('.pen-icon');
+                    const textContent = data.used_gb + ' / ' + data.cap_gb + ' GB';
+                    usedContainer.innerHTML = `<span>${textContent}</span>`;
+                    usedContainer.appendChild(penIcon);
+                }
+                
+                // Update the pen icon tooltip with current offset
+                const penIcon = document.querySelector('.pen-icon');
+                if (penIcon) {
+                    penIcon.title = `Adjust manual offset (${data.offset_gb} GB)`;
+                }
+                
+                // Update modal input with current value
+                document.getElementById('modalOffsetInput').value = data.offset_gb;
                 
                 // Update status
                 const statusElement = document.getElementById('status-message');
