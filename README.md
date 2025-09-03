@@ -1,6 +1,6 @@
 # Outbound Traffic Monitor
 
-A Flask-based web application that monitors outbound network traffic and provides a web interface to track monthly data usage against a 100GB limit.
+A FastAPI-based web application that monitors outbound network traffic and provides a web interface to track monthly data usage against a configurable limit.
 
 ## Features
 
@@ -10,6 +10,8 @@ A Flask-based web application that monitors outbound network traffic and provide
 - Visual warnings when approaching or exceeding limits
 - Auto-refresh dashboard every 5 seconds
 - Persistent state storage
+- RESTful API endpoints for programmatic access
+- Interactive API documentation via Swagger UI
 
 ## Quick Start with Docker
 
@@ -18,8 +20,9 @@ A Flask-based web application that monitors outbound network traffic and provide
    docker-compose up --build
    ```
 
-2. **Access the dashboard:**
-   - Open your browser to `http://localhost:8080`
+2. **Access the application:**
+   - Web dashboard: `http://localhost:8080`
+   - API documentation: `http://localhost:8080/docs`
    - Default credentials: `admin` / `secret123`
 
 ## Configuration
@@ -28,6 +31,21 @@ Environment variables:
 - `MONITOR_USER`: Basic auth username (default: admin)
 - `MONITOR_PASS`: Basic auth password (default: secret123)
 - `DATA_DIR`: Directory for persistent data (default: /app/data)
+- `TRAFFIC_CAP_GB`: Monthly traffic limit in GB (default: 500)
+
+## API Endpoints
+
+The application provides several REST API endpoints:
+
+- `GET /` - Main dashboard (HTML)
+- `GET /data` - Current traffic data (JSON)
+- `GET /daily` - Daily traffic chart (HTML)
+- `GET /daily-chart` - Daily chart data (JSON)
+- `POST /adjust` - Adjust manual offset
+- `GET /config` - Configuration page (HTML)
+- `GET /api/traffic-state` - Get complete traffic state
+- `POST /api/traffic-state` - Update traffic state
+- `GET /docs` - Interactive API documentation (Swagger UI)
 
 ## Docker Commands
 
